@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CMS NPI Doctor Search with ZIP Radius</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 30px auto;
+      padding: 20px;
+      background: #f9f9fb;
+      color: #333;
+    }
+    h1 { text-align: center; color: #005a9c; }
+    .search-box {
+      background: white;
+      padding: 25px;
+      border-radius: 12px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    label { display: block; margin: 15px 0 5px; font-weight: bold; }
+    input, select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+    button {
+      margin-top: 20px;
+      padding: 12px 30px;
+      background: #005a9c;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button:hover { background: #003d73; }
+    .test-btn { background: #28a745; margin-left: 10px; padding: 8px 15px; font-size: 14px; }
+    .test-btn:hover { background: #218838; }
+    .results { margin-top: 30px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    th { background: #005a9c; color: white; }
+    tr:hover { background: #f0f7ff; }
+    .loading { text-align: center; padding: 20px; font-style: italic; }
+    .no-results { text-align: center; padding: 30px; color: #666; }
+    .pagination { text-align: center; margin-top: 10px; font-style: italic; color: #666; }
+    .cors-error { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 6px; margin-top: 10px; }
+    .cors-error h4 { color: #856404; margin-top: 0; }
+    .cors-error ul { margin-bottom: 0; }
+  </style>
+</head>
+<body>
+
+  <h1>Find Doctors Near You (CMS NPI Registry)</h1>
+  <div class="search-box">
+    <label>Doctor's Name (e.g., Sarah Johnson or just "Johnson")</label>
+    <input type="text" id="name" placeholder="Optional – leave blank to search by specialty or location"/>
+
+    <label>Specialty (e.g., cardiology, family practice, dermatology)</label>
+    <input type="text" id="specialty" placeholder="Optional"/>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+      <div>
+        <label>ZIP Code (for radius search)</label>
+        <input type="text" id="zip" placeholder="e.g., 90210" maxlength="5"/>
+      </div>
+      <div>
+        <label>Radius (miles)</label>
+        <select id="radius">
+          <option value="">No radius (nationwide)</option>
+          <option value="5">5 miles</option>
+          <option value="10">10 miles</option>
+          <option value="25" selected>25 miles</option>
+          <option value="50">50 miles</option>
+          <option value="100">100 miles</option>
+        </select>
+      </div>
+    </div>
+
+    <label>City (optional)</label>
+    <input type="text" id="city" placeholder="e.g., Houston"/>
+
+    <label>State (2 letters)</label>
+    <select id="state">
+      <option value="">Any State</option>
+      <option value="AL">Alabama</option><option value="AK">Alaska</option><option value="AZ">Arizona</option>
+      <option value="AR">Arkansas</option><option value="CA">California</option><option value="CO">Colorado</option>
+      <option value="CT">Connecticut</option><option value="DE">Delaware</option><option value="FL">Florida</option>
+      <option value="GA">Georgia</option><option value="HI">Hawaii</option><option value="ID">Idaho</option>
+      <option value="IL">Illinois</option><option value="IN">Indiana</option><option value="IA">Iowa</option>
+      <option value="KS">Kansas</option><option value="KY">Kentucky</option><option value="LA">Louisiana</option>
+      <option value="ME">Maine</option><option value="MD">Maryland</option><option value="MA">Massachusetts</option>
+      <option value="MI">Michigan</option><option value="MN">Minnesota</option><option value="MS">Mississippi</option>
+      <option value="MO">Missouri</option><option value="MT">Montana</option><option value="NE">Nebraska</option>
+      <option value="NV">Nevada</option><option value="NH">New Hampshire</option><option value="NJ">New Jersey</option>
+      <option value="NM">New Mexico</option><option value="NY">New York</option><option value="NC">North Carolina</option>
+      <option value="ND">North Dakota</option><option value="OH">Ohio</option><option value="OK">Oklahoma</option>
+      <option value="OR">Oregon</option><option value="PA">Pennsylvania</option><option value="RI">Rhode Island</option>
+      <option value="SC">South Carolina</option><option value="SD">South Dakota</option><option value="TN">Tennessee</option>
+      <option value="TX">Texas</option><option value="UT">Utah</option><option value="VT">Vermont</option>
+      <option value="VA">Virginia</option><option value="WA">Washington</option><option value="WV">West Virginia</option>
+      <option value="WI">Wisconsin</option><option value="WY">Wyoming</option>
+    </select>
+
+    <button onclick="search()">Search Doctors</button>
+    <button class="test-btn" onclick="testApi()">Test API Connection</button>
+  </div>
+
+  <div class="results" id="results"></div>
+
+  <script>
+    async function testApi() {
+      const resultsDiv = document.getElementById("results");
+      resultsDiv.innerHTML = '<div class="loading">Testing API connection...</div>';
+
+      const params = new URLSearchParams({
+        version: '2.1',
+        enumeration_type: 'NPI-1',
+        limit: '1',
+        first_name: 'John'  // Minimal valid search
+      });
+
+      const url = `https://npiregistry.cms.hhs.gov/api/?${params.toString()}`;
+
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          throw new Error(`API Error ${resp.status}: ${await resp.text().substring(0, 200)}`);
+        }
+        const data = await resp.json();
+        resultsDiv.innerHTML = `<div style="color:green">API Connected! Found ${data.result_count || 0} sample results.</div>`;
+      } catch (err) {
+        showCorsError(err.message, resultsDiv);
+      }
+    }
+
+    async function search() {
+      const name = document.getElementById("name").value.trim();
+      const specialty = document.getElementById("specialty").value.trim();
+      const zip = document.getElementById("zip").value.trim();
+      const radius = document.getElementById("radius").value;
+      const city = document.getElementById("city").value.trim();
+      const state = document.getElementById("state").value;
+
+      // Ensure at least one search criterion
+      if (!name && !specialty && !zip && !city && !state) {
+        alert("Please enter at least one search criterion (name, specialty, ZIP, city, or state).");
+        return;
+      }
+
+      const resultsDiv = document.getElementById("results");
+      resultsDiv.innerHTML = '<div class="loading">Searching CMS NPI Registry...</div>';
+
+      const params = new URLSearchParams({
+        version: '2.1',
+        enumeration_type: 'NPI-1',  // Individuals only
+        limit: '200'
+      });
+
+      // Name handling
+      if (name) {
+        const parts = name.split(' ');
+        if (parts.length >= 2) {
+          params.append('first_name', parts.slice(0, -1).join(' '));
+          params.append('last_name', parts[parts.length - 1]);
+        } else {
+          params.append('last_name', name);
+        }
+      }
+
+      // Specialty
+      if (specialty) params.append('taxonomy_description', specialty);
+
+      // ZIP + Radius
+      if (zip && radius) {
+        params.append('postal_code', zip);
+        params.append('radius', radius);
+        params.append('address_purpose', 'LOCATION');
+      } else {
+        if (city) params.append('city', city);
+        if (state) params.append('state', state);
+      }
+
+      const url = `https://npiregistry.cms.hhs.gov/api/?${params.toString()}`;
+
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          const err = await resp.text();
+          throw new Error(`API Error ${resp.status}: ${err.substring(0, 200)}`);
+        }
+        const data = await resp.json();
+
+        if (data.result_count === 0 || !data.npi_registry_results) {
+          resultsDiv.innerHTML = '<div class="no-results">No doctors found matching your criteria.</div>';
+          return;
+        }
+
+        const rows = data.npi_registry_results;
+
+        let table = `
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Primary Specialty</th>
+                <th>Practice Location</th>
+                <th>NPI</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        rows.forEach(r => {
+          const basic = r.basic || {};
+          const name = `${basic.first_name || ''} ${basic.last_name || ''}`.trim() || 'Name N/A';
+          const primaryTax = r.taxonomies?.find(t => t.primary)?.desc || r.taxonomies?.[0]?.desc || '—';
+          const addr = r.addresses?.find(a => a.address_purpose === 'LOCATION') || r.addresses?.[0] || {};
+          const location = `${addr.city || ''}, ${addr.state || ''} ${addr.postal_code ? addr.postal_code.substring(0,5) : ''}`.trim();
+
+          table += `
+            <tr>
+              <td><strong>${name}</strong></td>
+              <td>${primaryTax}</td>
+              <td>${location || '—'}</td>
+              <td><a href="https://npiregistry.cms.hhs.gov/registry/provider-view/${r.number}" target="_blank">${r.number}</a></td>
+            </tr>
+          `;
+        });
+
+        table += `</tbody></table>`;
+        if (data.result_count > 200) {
+          table += `<div class="pagination">Showing first 200 of ${data.result_count.toLocaleString()} results. Refine your search to see more.</div>`;
+        }
+        resultsDiv.innerHTML = table;
+
+      } catch (err) {
+        showCorsError(err.message, resultsDiv);
+      }
+    }
+
+    function showCorsError(msg, resultsDiv) {
+      if (msg.includes('Failed to fetch') || msg.includes('network') || msg.includes('CORS')) {
+        resultsDiv.innerHTML = `
+          <div class="cors-error">
+            <h4>CORS Error: API Blocked in Browser</h4>
+            <p>This is a common issue when running from a local file. The CMS API doesn't allow direct browser requests for security.</p>
+            <ul>
+              <li><strong>Quick Fix:</strong> Host this HTML on GitHub Pages or Netlify (free, 2 minutes).</li>
+              <li><strong>Or:</strong> Use the "Test API" button after hosting.</li>
+              <li>Full API docs: <a href="https://npiregistry.cms.hhs.gov/api-page" target="_blank">CMS NPI API v2.1</a></li>
+            </ul>
+          </div>
+        `;
+      } else {
+        resultsDiv.innerHTML = `<div style="color:red">Error: ${msg}</div>`;
+      }
+    }
+  </script>
+
+  <footer style="text-align:center; margin-top:50px; color:#666; font-size:0.9em;">
+    Data: Official CMS NPI Registry API v2.1 • Updated daily • ZIP radius search included
+  </footer>
+</body>
+</html>
