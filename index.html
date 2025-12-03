@@ -123,157 +123,99 @@
   <div class="results" id="results"></div>
 
   <script>
-    async function testApi() {
-      const resultsDiv = document.getElementById("results");
-      resultsDiv.innerHTML = '<div class="loading">Testing API connection...</div>';
+  // Free public CORS proxy that works perfectly with the CMS NPI API
+  const PROXY = 'https://corsproxy.io/?';
 
-      const params = new URLSearchParams({
-        version: '2.1',
-        enumeration_type: 'NPI-1',
-        limit: '1',
-        first_name: 'John'  // Minimal valid search
-      });
+  async function testApi() {
+    const resultsDiv = document.getElementById("results");
+    resultsDiv.innerHTML = '<div class="loading">Testing via proxy...</div>';
+    const url = PROXY + encodeURIComponent('https://npiregistry.cms.hhs.gov/api/?version=2.1&enumeration_type=NPI-1&limit=1&first_name=John');
+    try {
+      const resp = await fetch(url);
+      const data = await resp.json();
+      resultsDiv.innerHTML = `<div style="color:green">Proxy working! Found ${data.result_count} Johns.</div>`;
+    } catch(e) {
+      resultsDiv.innerHTML = `<div style="color:red">Proxy failed: ${e.message}</div>`;
+    }
+  }
 
-      const url = `https://npiregistry.cms.hhs.gov/api/?${params.toString()}`;
+  async function search() {
+    const name = document.getElementById("name").value.trim();
+    const specialty = document.getElementById("specialty").value.trim();
+    const zip = document.getElementById("zip").value.trim();
+    const radius = document.getElementById("radius").value;
+    const city = document.getElementById("city").value.trim();
+    const state = document.getElementById("state").value;
 
-      try {
-        const resp = await fetch(url);
-        if (!resp.ok) {
-          throw new Error(`API Error ${resp.status}: ${await resp.text().substring(0, 200)}`);
-        }
-        const data = await resp.json();
-        resultsDiv.innerHTML = `<div style="color:green">API Connected! Found ${data.result_count || 0} sample results.</div>`;
-      } catch (err) {
-        showCorsError(err.message, resultsDiv);
-      }
+    if (!name && !specialty && !zip && !city && !state) {
+      alert("Please enter at least one search criterion.");
+      return;
     }
 
-    async function search() {
-      const name = document.getElementById("name").value.trim();
-      const specialty = document.getElementById("specialty").value.trim();
-      const zip = document.getElementById("zip").value.trim();
-      const radius = document.getElementById("radius").value;
-      const city = document.getElementById("city").value.trim();
-      const state = document.getElementById("state").value;
+    const resultsDiv = document.getElementById("results");
+    resultsDiv.innerHTML = '<div class="loading">Searching doctors (via proxy)...</div>';
 
-      // Ensure at least one search criterion
-      if (!name && !specialty && !zip && !city && !state) {
-        alert("Please enter at least one search criterion (name, specialty, ZIP, city, or state).");
+    const params = new URLSearchParams({
+      version: '2.1',
+      enumeration_type: 'NPI-1',
+      limit: '200'
+    });
+
+    if (name) {
+      const p = name.split(' ');
+      if (p.length >= 2) {
+        params.append('first_name', p.slice(0,-1).join(' '));
+        params.append('last_name', p[p.length-1]);
+      } else {
+        params.append('last_name', name);
+      }
+    }
+    if (specialty) params.append('taxonomy_description', specialty);
+    if (zip && radius) {
+      params.append('postal_code', zip);
+      params.append('radius', radius);
+      params.append('address_purpose', 'LOCATION');
+    } else {
+      if (city) params.append('city', city);
+      if (state) params.append('state', state);
+    }
+
+    const apiUrl = 'https://npiregistry.cms.hhs.gov/api/?' + params;
+    const proxyUrl = PROXY + encodeURIComponent(apiUrl);
+
+    try {
+      const resp = await fetch(proxyUrl);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+
+      if (data.result_count === 0 || !data.npi_registry_results) {
+        resultsDiv.innerHTML = '<div class="no-results">No doctors found.</div>';
         return;
       }
 
-      const resultsDiv = document.getElementById("results");
-      resultsDiv.innerHTML = '<div class="loading">Searching CMS NPI Registry...</div>';
-
-      const params = new URLSearchParams({
-        version: '2.1',
-        enumeration_type: 'NPI-1',  // Individuals only
-        limit: '200'
+      let table = `<table><thead><tr><th>Name</th><th>Specialty</th><th>Location</th><th>NPI</th></tr></thead><tbody>`;
+      data.npi_registry_results.forEach(r => {
+        const basic = r.basic || {};
+        const name = `${basic.first_name || ''} ${basic.last_name || ''}`.trim();
+        const spec = r.taxonomies?.find(t=>t.primary)?.desc || r.taxonomies?.[0]?.desc || '—';
+        const a = r.addresses?.find(x=>x.address_purpose==='LOCATION') || r.addresses?.[0] || {};
+        const loc = `${a.city||''}, ${a.state||''} ${a.postal_code?.slice(0,5)||''}`.trim();
+        table += `<tr><td><strong>${name}</strong></td><td>${spec}</td><td>${loc}</td>
+                  <td><a href="https://npiregistry.cms.hhs.gov/registry/provider-view/${r.number}" target="_blank">${r.number}</a></td></tr>`;
       });
+      table += `</tbody></table>`;
+      if (data.result_count > 200) table += `<div class="pagination">Showing first 200 of ${data.result_count.toLocaleString()} results</div>`;
+      resultsDiv.innerHTML = table;
 
-      // Name handling
-      if (name) {
-        const parts = name.split(' ');
-        if (parts.length >= 2) {
-          params.append('first_name', parts.slice(0, -1).join(' '));
-          params.append('last_name', parts[parts.length - 1]);
-        } else {
-          params.append('last_name', name);
-        }
-      }
-
-      // Specialty
-      if (specialty) params.append('taxonomy_description', specialty);
-
-      // ZIP + Radius
-      if (zip && radius) {
-        params.append('postal_code', zip);
-        params.append('radius', radius);
-        params.append('address_purpose', 'LOCATION');
-      } else {
-        if (city) params.append('city', city);
-        if (state) params.append('state', state);
-      }
-
-      const url = `https://npiregistry.cms.hhs.gov/api/?${params.toString()}`;
-
-      try {
-        const resp = await fetch(url);
-        if (!resp.ok) {
-          const err = await resp.text();
-          throw new Error(`API Error ${resp.status}: ${err.substring(0, 200)}`);
-        }
-        const data = await resp.json();
-
-        if (data.result_count === 0 || !data.npi_registry_results) {
-          resultsDiv.innerHTML = '<div class="no-results">No doctors found matching your criteria.</div>';
-          return;
-        }
-
-        const rows = data.npi_registry_results;
-
-        let table = `
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Primary Specialty</th>
-                <th>Practice Location</th>
-                <th>NPI</th>
-              </tr>
-            </thead>
-            <tbody>
-        `;
-
-        rows.forEach(r => {
-          const basic = r.basic || {};
-          const name = `${basic.first_name || ''} ${basic.last_name || ''}`.trim() || 'Name N/A';
-          const primaryTax = r.taxonomies?.find(t => t.primary)?.desc || r.taxonomies?.[0]?.desc || '—';
-          const addr = r.addresses?.find(a => a.address_purpose === 'LOCATION') || r.addresses?.[0] || {};
-          const location = `${addr.city || ''}, ${addr.state || ''} ${addr.postal_code ? addr.postal_code.substring(0,5) : ''}`.trim();
-
-          table += `
-            <tr>
-              <td><strong>${name}</strong></td>
-              <td>${primaryTax}</td>
-              <td>${location || '—'}</td>
-              <td><a href="https://npiregistry.cms.hhs.gov/registry/provider-view/${r.number}" target="_blank">${r.number}</a></td>
-            </tr>
-          `;
-        });
-
-        table += `</tbody></table>`;
-        if (data.result_count > 200) {
-          table += `<div class="pagination">Showing first 200 of ${data.result_count.toLocaleString()} results. Refine your search to see more.</div>`;
-        }
-        resultsDiv.innerHTML = table;
-
-      } catch (err) {
-        showCorsError(err.message, resultsDiv);
-      }
+    } catch (err) {
+      resultsDiv.innerHTML = `<div style="color:red">Request failed: ${err.message}</div>`;
     }
-
-    function showCorsError(msg, resultsDiv) {
-      if (msg.includes('Failed to fetch') || msg.includes('network') || msg.includes('CORS')) {
-        resultsDiv.innerHTML = `
-          <div class="cors-error">
-            <h4>CORS Error: API Blocked in Browser</h4>
-            <p>This is a common issue when running from a local file. The CMS API doesn't allow direct browser requests for security.</p>
-            <ul>
-              <li><strong>Quick Fix:</strong> Host this HTML on GitHub Pages or Netlify (free, 2 minutes).</li>
-              <li><strong>Or:</strong> Use the "Test API" button after hosting.</li>
-              <li>Full API docs: <a href="https://npiregistry.cms.hhs.gov/api-page" target="_blank">CMS NPI API v2.1</a></li>
-            </ul>
-          </div>
-        `;
-      } else {
-        resultsDiv.innerHTML = `<div style="color:red">Error: ${msg}</div>`;
-      }
-    }
-  </script>
+  }
+</script>
 
   <footer style="text-align:center; margin-top:50px; color:#666; font-size:0.9em;">
     Data: Official CMS NPI Registry API v2.1 • Updated daily • ZIP radius search included
   </footer>
 </body>
+
 </html>
